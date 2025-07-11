@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Book Management</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        h1 {
+            text-align: center;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        button {
+            padding: 5px 10px;
+            margin: 5px;
+        }
+        form {
+            margin-top: 20px;
+        }
+        input, select {
+            margin: 5px;
+            padding: 5px;
+        }
+        #searchForm {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        #pagination {
+            margin-top: 10px;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+        .spinner {
+            display: none;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .message {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .success {
+            background-color: #dff0d8;
+            color: #3c763d;
+        }
+        .error {
+            background-color: #f2dede;
+            color: #a94442;
+        }
+    </style>
+</head>
+<body>
+    <h1>Book Management</h1>
+    <form id="searchForm">
+        <input type="text" id="searchTitle" placeholder="Enter title">
+        <input type="text" id="searchAuthor" placeholder="Enter author">
+        <button type="submit">Search</button>
+        <button type="button" onclick="fetchBooks(0)">Show All Books</button>
+    </form>
+    <form id="bookForm">
+        <input type="hidden" id="bookId">
+        <input type="text" id="title" placeholder="Title" required>
+        <input type="text" id="author" placeholder="Author" required>
+        <input type="number" id="price" placeholder="Price" step="0.01" required>
+        <button type="submit" id="addbook">Add Book</button>
+        <button type="submit" id="updatebook" style="display: none;">Update Book</button>
+    </form>
+    <div id="message" class="message" style="display: none;"></div>
+    <div id="spinner" class="spinner"></div>
+    <table id="bookTable">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Title</th>
+                <th>Author</th>
+                <th>Price</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="bookList"></tbody>
+    </table>
+    <div id="pagination"></div>
+
+    <script>
+        const apiUrl = 'http://localhost:5051/api/books';
+        let currentPage = 0;
+        const pageSize = 5;
+
+        // Hiển thị thông báo
+        function showMessage(text, type) {
+            const messageDiv = document.getElementById('message');
+            messageDiv.textContent = text;
+            messageDiv.className = `message ${type}`;
+            messageDiv.style.display = 'block';
+            setTimeout(() => { messageDiv.style.display = 'none'; }, 3000);
+        }
+
+        // Hiển thị/Ẩn spinner
+        function toggleSpinner(show) {
+            document.getElementById('spinner').style.display = show ? 'block' : 'none';
+        }
+
+        // Cập nhật trạng thái nút Add/Update
+        function toggleButtons(isEditMode) {
+            const addButton = document.getElementById('addbook');
+            const updateButton = document.getElementById('updatebook');
+            addButton.style.display = isEditMode ? 'none' : 'inline-block';
+            updateButton.style.display = isEditMode ? 'inline-block' : 'none';
+        }
+
+        // Hiển thị danh sách sách
+        function displayBooks(books) {
+            const bookList = document.getElementById('bookList');
+            bookList.innerHTML = '';
+            if (books.length === 0) {
+                bookList.innerHTML = '<tr><td colspan="5">No books found</td></tr>';
+                return;
+            }
+            books.forEach(book => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${book.id}</td>
+                    <td>${book.title}</td>
+                    <td>${book.author}</td>
+                    <td>${book.price}</td>
+                    <td>
+                        <button onclick="editBook('${book.id}', '${book.title}', '${book.author}', ${book.price})">Edit</button>
+                        <button onclick="deleteBook('${book.id}')">Delete</button>
+                    </td>
+                `;
+                bookList.appendChild(row);
+            });
+            toggleButtons(false); // Reset về chế độ Add khi hiển thị danh sách
+        }
+
+        // Hiển thị phân trang
+        function displayPagination(totalPages, currentPage) {
+            const paginationDiv = document.getElementById('pagination');
+            paginationDiv.innerHTML = '';
+            if (totalPages > 1) {
+                if (currentPage > 0) {
+                    const prevButton = document.createElement('button');
+                    prevButton.textContent = 'Previous';
+                    prevButton.onclick = () => fetchBooks(currentPage - 1);
+                    paginationDiv.appendChild(prevButton);
+                }
+                if (currentPage < totalPages - 1) {
+                    const nextButton = document.createElement('button');
+                    nextButton.textContent = 'Next';
+                    nextButton.onclick = () => fetchBooks(currentPage + 1);
+                    paginationDiv.appendChild(nextButton);
+                }
+            }
+        }
+
+        // Lấy danh sách sách với phân trang
+        async function fetchBooks(page = 0) {
+            toggleSpinner(true);
+            try {
+                const response = await fetch(`${apiUrl}?page=${page}&size=${pageSize}`);
+                if (!response.ok) throw new Error('Failed to fetch books');
+                const data = await response.json();
+                currentPage = page;
+                displayBooks(data.content);
+                displayPagination(data.totalPages, page);
+            } catch (error) {
+                console.error('Error fetching books:', error);
+                showMessage('Failed to load books. Please try again.', 'error');
+            } finally {
+                toggleSpinner(false);
+            }
+        }
+
+        // Tìm kiếm sách
+        async function searchBooks(title, author, page = 0) {
+            toggleSpinner(true);
+            try {
+                if (!title && !author) {
+                    fetchBooks(page);
+                    return;
+                }
+                let url = `${apiUrl}/search?page=${page}&size=${pageSize}`;
+                if (title) url += `&title=${encodeURIComponent(title)}`;
+                if (author) url += `&author=${encodeURIComponent(author)}`;
+                const response = await fetch(url);
+                if (!response.ok) {
+                    if (response.status === 404) {
+                        throw new Error('Books not found');
+                    } else {
+                        throw new Error('Failed to search books');
+                    }
+                }
+                const data = await response.json();
+                currentPage = page;
+                displayBooks(data.content);
+                displayPagination(data.totalPages, page);
+            } catch (error) {
+                console.error('Error searching books:', error);
+                showMessage(`Failed to search books: ${error.message}`, 'error');
+            } finally {
+                toggleSpinner(false);
+            }
+        }
+
+        // Thêm hoặc cập nhật sách
+        document.getElementById('bookForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            toggleSpinner(true);
+            const id = document.getElementById('bookId').value;
+            const book = {
+                title: document.getElementById('title').value,
+                author: document.getElementById('author').value,
+                price: parseFloat(document.getElementById('price').value)
+            };
+            const method = id ? 'PUT' : 'POST';
+            const url = id ? `${apiUrl}/${id}` : apiUrl;
+
+            try {
+                const response = await fetch(url, {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(book)
+                });
+                if (!response.ok) throw new Error('Failed to save book');
+                document.getElementById('bookForm').reset();
+                document.getElementById('bookId').value = '';
+                toggleButtons(false); // Hiển thị nút Add sau khi submit
+                fetchBooks(currentPage);
+                showMessage(id ? 'Book updated successfully' : 'Book added successfully', 'success');
+            } catch (error) {
+                console.error('Error saving book:', error);
+                showMessage('Failed to save book. Please try again.', 'error');
+            } finally {
+                toggleSpinner(false);
+            }
+        });
+
+        // Xử lý tìm kiếm
+        document.getElementById('searchForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const title = document.getElementById('searchTitle').value;
+            const author = document.getElementById('searchAuthor').value;
+            searchBooks(title, author, 0);
+            toggleButtons(false); // Reset nút khi tìm kiếm
+        });
+
+        // Chỉnh sửa sách
+        function editBook(id, title, author, price) {
+            document.getElementById('bookId').value = id;
+            document.getElementById('title').value = title;
+            document.getElementById('author').value = author;
+            document.getElementById('price').value = price;
+            toggleButtons(true); // Hiển thị nút Update khi chỉnh sửa
+        }
+
+        // Xóa sách với xác nhận
+        async function deleteBook(id) {
+            if (confirm('Are you sure you want to delete this book?')) {
+                toggleSpinner(true);
+                try {
+                    const response = await fetch(`${apiUrl}/${id}?confirm=true`, {
+                        method: 'DELETE'
+                    });
+                    if (!response.ok) {
+                        if (response.status === 404) {
+                            throw new Error('Book not found');
+                        } else if (response.status === 400) {
+                            throw new Error('Deletion confirmation required');
+                        } else {
+                            throw new Error('Failed to delete book');
+                        }
+                    }
+                    fetchBooks(currentPage);
+                    showMessage('Book deleted successfully', 'success');
+                    toggleButtons(false); // Reset nút sau khi xóa
+                } catch (error) {
+                    console.error('Error deleting book:', error);
+                    showMessage(`Failed to delete book: ${error.message}`, 'error');
+                } finally {
+                    toggleSpinner(false);
+                }
+            }
+        }
+
+        // Tải danh sách sách khi trang được tải
+        fetchBooks();
+    </script>
+</body>
+</html>
